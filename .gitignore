@@ -1,0 +1,9 @@
+build/
+*.apk
+*.obb
+*.vpk
+*.velf
+*.self
+eboot.bin
+data.rsdk
+data/

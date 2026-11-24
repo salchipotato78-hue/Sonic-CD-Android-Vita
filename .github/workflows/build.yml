@@ -1,0 +1,72 @@
+name: build-vpk
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  vpk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        game: [sonic1, soniccd]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Dependencias del host
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake git wget p7zip-full tar patch make
+
+      - name: Cachear VitaSDK-softfp
+        id: vitasdk-cache
+        uses: actions/cache@v4
+        with:
+          path: /usr/local/vitasdk
+          key: vitasdk-softfp-v3
+
+      - name: Instalar VitaSDK-softfp con vdpm
+        if: steps.vitasdk-cache.outputs.cache-hit != 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git clone --depth 1 https://github.com/vitasdk-softfp/vdpm "$RUNNER_TEMP/vdpm"
+          cd "$RUNNER_TEMP/vdpm"
+          export VITASDK=/usr/local/vitasdk
+          export PATH="$VITASDK/bin:$PATH"
+          ./bootstrap-vitasdk.sh
+          ./install-all.sh
+
+      - name: Configurar entorno de VitaSDK
+        run: |
+          echo "VITASDK=/usr/local/vitasdk" >> "$GITHUB_ENV"
+          echo "/usr/local/vitasdk/bin" >> "$GITHUB_PATH"
+
+      - name: Configurar CMake
+        run: |
+          EXTRA=""
+          if [ "${{ matrix.game }}" = "soniccd" ]; then EXTRA="-DGAME_SONICCD=ON"; fi
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug $EXTRA
+
+      - name: Compilar VPK
+        run: cmake --build build -j"$(nproc)"
+
+      - name: Subir VPK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.game }}_vita
+          path: build/*.vpk
+          if-no-files-found: error
+
+      - name: Subir ELF con símbolos para depurar
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.game }}_vita_debug_symbols
+          path: |
+            build/so_loader
+            build/*.velf
+          if-no-files-found: warn
